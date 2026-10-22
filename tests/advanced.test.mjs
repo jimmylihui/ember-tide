@@ -37,9 +37,9 @@ const nextRound = g => {
 };
 const mushroomCount = (g, p) => g.players[p].deck.reduce((sum, h) => sum + (h.puffcaps || 0), 0);
 
-test('advanced rule entries reference real catalog cards; incomplete random pools stay unsupported', () => {
+test('advanced rule entries reference real catalog cards and completed random pools are playable', () => {
   assert.ok(Object.keys(ADVANCED_RULES).every(id => CARDS[id]));
-  for (const id of ['01IO041', '01IO041T1', '01IO054', '01IO041T2', '01PZ016']) assert.equal(cardSupported(id), false, id);
+  for (const id of ['01IO041', '01IO041T1', '01IO054', '01IO041T2', '01PZ016']) assert.equal(cardSupported(id), true, id);
 });
 
 test('Mushroom Cloud plants five attached traps and advances Teemo from global planted count', () => {

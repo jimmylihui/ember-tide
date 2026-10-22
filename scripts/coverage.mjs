@@ -4,8 +4,10 @@ import { writeFile } from 'node:fs/promises';
 import { CARDS, DATASET, REGIONS, cardSupported } from '../src/engine.js';
 import { RULES, unsupportedFor } from '../src/rules.js';
 import { ADVANCED_RULES } from '../src/advanced-rules.js';
+import { COMPLETION_RULES } from '../src/completion-rules.js';
+import { SHADOW_RULES } from '../src/shadow-rules.js';
 
-const registry = { ...RULES, ...ADVANCED_RULES };
+const registry = { ...RULES, ...ADVANCED_RULES, ...COMPLETION_RULES, ...SHADOW_RULES };
 const pendingReasons = unsupportedFor(registry);
 const all = Object.values(CARDS);
 const collectible = all.filter(c => c.collectible);

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {CARDS,createGame,act,attack,keywords,cardSupported} from '../src/engine.js';
 import {CARD_CATALOG,RULES,unsupportedFor} from '../src/rules.js';
 import {ADVANCED_RULES} from '../src/advanced-rules.js';
+import {COMPLETION_RULES} from '../src/completion-rules.js';
+import {SHADOW_RULES} from '../src/shadow-rules.js';
 
 const fixture=()=>{
  const g=createGame(()=>.25);
@@ -26,7 +28,7 @@ const find=(g,p,u)=>g.players[p].board.find(x=>x.uid===u.uid);
 const nextRound=g=>act(act(g,g.priority,{type:'pass'}),1-g.priority,{type:'pass'});
 
 test('every official card is either implemented or has an explicit unsupported reason',()=>{
- const merged={...RULES,...ADVANCED_RULES},missing=unsupportedFor(merged);
+ const merged={...RULES,...ADVANCED_RULES,...COMPLETION_RULES,...SHADOW_RULES},missing=unsupportedFor(merged);
  assert.equal(Object.keys(CARD_CATALOG).length,419);
  assert.equal(Object.values(CARD_CATALOG).filter(c=>c.collectible).length,318);
  for(const id of Object.keys(CARD_CATALOG)){

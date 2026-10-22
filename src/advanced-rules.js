@@ -93,18 +93,15 @@ define('01PZ056T10', { champion: 'Heimerdinger', spellPlayed: ctx => makeTurret(
 
 // Karma's leveled spell-copy action is managed by the engine so copied spells
 // keep their original targets and cannot recursively trigger additional copies.
-const incompleteSpellPool = '随机法术池仍有尚未实现的卡牌';
-define('01IO041', { champion: 'Karma', roundEnd: ctx => createRandomSpell(ctx), implemented: false, reason: incompleteSpellPool });
-define('01IO041T1', { champion: 'Karma', roundEnd: ctx => createRandomSpell(ctx), duplicateSpells: true, implemented: false, reason: incompleteSpellPool });
+define('01IO041', { champion: 'Karma', roundEnd: ctx => createRandomSpell(ctx) });
+define('01IO041T1', { champion: 'Karma', roundEnd: ctx => createRandomSpell(ctx), duplicateSpells: true });
 define('01IO054', {
-  implemented: false, reason: incompleteSpellPool,
   effect: ctx => {
     const count = ctx.player.maxMana >= 10 ? 2 : 1;
     for (let i = 0; i < count; i++) createRandomSpell(ctx, c => c.id !== '01IO054');
   },
 });
 define('01PZ016', {
-  implemented: false, reason: incompleteSpellPool,
   effect: ctx => {
     createRandomSpell(ctx, c => c.cost >= 6);
     ctx.refillSpellMana();
