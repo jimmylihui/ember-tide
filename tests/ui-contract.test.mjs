@@ -6,18 +6,18 @@ import * as engine from '../src/engine.js';
 
 // Exercise the real UI event handlers and action serializer with a minimal DOM
 // facade. This runs no browser and does not replace engine rule tests.
-const source=readFileSync(new URL('../src/app.js',import.meta.url),'utf8').replace(/^import[^\n]+\n/,'');
+const source=readFileSync(new URL('../src/app.js',import.meta.url),'utf8').replace(/^import[^\n]+\n/gm,'');
 const plain=x=>JSON.parse(JSON.stringify(x));
-function harness(metadata={}){
+function harness(metadata={},options={}){
  const listeners={},actions=[];
  const app={innerHTML:'',addEventListener:(name,fn)=>listeners[name]=fn};
  const toast={textContent:'',classList:{add(){},remove(){}}};
  const storage={getItem(){return null;},setItem(){}};
  const cards=Object.fromEntries(Object.entries(engine.CARDS).map(([id,c])=>[id,{...c}]));
  const code='01PZ052';cards[code]={...cards[code],target:'none',target2:undefined,target3:undefined,targets:undefined,targetOptional:false,targetCount:undefined,freesBoardSlot:false,sacrifice:undefined,discard:undefined,...metadata};
- const sandbox={C:cards,REGIONS:engine.REGIONS,PRESETS:engine.PRESETS,DATASET:engine.DATASET,cardSupported:engine.cardSupported,createGame:engine.createGame,view:engine.view,attack:engine.attack,keywords:engine.keywords,act:(state,p,action)=>{actions.push(plain(action));return {...structuredClone(state),version:state.version+1};},document:{querySelector:s=>s==='#app'?app:s==='#toast'?toast:null,addEventListener(){}},localStorage:storage,sessionStorage:storage,setTimeout(){},setInterval(){},navigator:{},structuredClone};
+ const sandbox={createMotion:()=>({capture(){},play:options.motionPlay||(()=>Promise.resolve()),reset(){},setReduced(){}}),installDrag:()=>({cancel(){},destroy(){}}),C:cards,REGIONS:engine.REGIONS,PRESETS:engine.PRESETS,DATASET:engine.DATASET,cardSupported:engine.cardSupported,createGame:engine.createGame,view:engine.view,attack:engine.attack,keywords:engine.keywords,act:(state,p,action)=>{actions.push(plain(action));return options.realAct?engine.act(state,p,action):{...structuredClone(state),version:state.version+1};},document:{querySelector:s=>s==='#app'?app:s==='#toast'?toast:null,addEventListener(){}},localStorage:storage,sessionStorage:storage,setTimeout(){},setInterval(){},navigator:{},structuredClone};
  vm.createContext(sandbox);
- vm.runInContext(source+`\nglobalThis.ui={set(state){mode='local';full=state;g=view(state,0);seat=0;ready=true;curtain=false;busy=false;resetSelection();},select(uid){selected=uid;},state(){return {fixedTargets,extraTargets,sacrifices:[...sacrifices],targetGroup,replaceUid};},localSnapshot,targetPlan,targetReady,groupMinimum,activeGroup,handTargetable,pickTarget,doPlay,selectionMarkup,stackMarkup,manifestMarkup,render};`,sandbox);
+ vm.runInContext(source+`\nglobalThis.ui={set(state){mode='local';full=state;g=view(state,0);seat=0;ready=true;curtain=false;busy=false;resetSelection();},select(uid){selected=uid;},state(){return {game:g,mode,seat,curtain,busy,sessionEpoch,selected,attackMode,attackers:[...attackers],challenges,blocks,fixedTargets,extraTargets,sacrifices:[...sacrifices],targetGroup,replaceUid};},setCurtain(value){curtain=value;},dispatch,canDrop,handleDrop,localSnapshot,targetPlan,targetReady,groupMinimum,activeGroup,handTargetable,pickTarget,doPlay,selectionMarkup,stackMarkup,manifestMarkup,render};`,sandbox);
  const state=engine.createGame(()=>0.4);state.phase='main';state.round=4;state.priority=0;state.stack=[];state.combat=null;
  const unit=uid=>({uid,card:'01DE020',atk:2,hp:2,maxHp:2,tempAtk:0,tempHp:0,kw:[],tempKw:[],removedKw:[],flags:{}});
  state.players[0].hand=[{uid:'source',card:code},{uid:'handUnit',card:'01DE020'},{uid:'handSpell',card:'01FR001'}];
@@ -128,4 +128,87 @@ test('UI cannot use one unit as both replacement and sacrifice cost',async()=>{
  await h.listeners.click({target:{closest(selector){return selector==='[data-replace-mode]'?{dataset:{}}:null;}}});
  h.ui.pickTarget('allyA');assert.equal(h.ui.state().replaceUid,null);assert.deepEqual(plain(h.ui.state().sacrifices),['allyA']);
  h.ui.pickTarget('allyB');assert.equal(h.ui.state().replaceUid,'allyB');
+});
+
+
+test('drag integration summons a costless untargeted unit on its own board',()=>{
+ const h=harness({kind:'unit'}),source={kind:'hand',uid:'source'},drop={kind:'board',p:0};
+ assert.equal(h.ui.canDrop(source,drop),true);h.ui.handleDrop({...source,drop});
+ assert.equal(h.actions.length,1);assert.equal(h.actions[0].type,'play');assert.equal(h.actions[0].uid,'source');
+});
+
+test('drag integration keeps targeted and multi-target cards pending confirmation',()=>{
+ const h=harness({kind:'unit',target:'ally'}),source={kind:'hand',uid:'source'};
+ h.ui.handleDrop({...source,drop:{kind:'board',p:0}});assert.equal(h.actions.length,0);assert.equal(h.ui.state().selected,'source');
+ h.ui.handleDrop({...source,drop:{kind:'unit',uid:'allyA',p:0}});assert.equal(h.ui.state().fixedTargets[0],'allyA');assert.equal(h.actions.length,0);
+ const m=harness({kind:'unit',targetCount:{type:'enemyUnit',min:0,max:3,distinct:true}});
+ m.ui.handleDrop({...source,drop:{kind:'unit',uid:'enemyA',p:1}});
+ assert.deepEqual(plain(m.ui.state().extraTargets),['enemyA']);assert.equal(m.actions.length,0);
+});
+
+test('dragging a targeted spell onto own board selects it without casting',()=>{
+ const h=harness({kind:'spell',target:'enemyUnit'}),source={kind:'hand',uid:'source'},drop={kind:'board',p:0};
+ assert.equal(h.ui.canDrop(source,drop),true);h.ui.handleDrop({...source,drop});
+ assert.equal(h.ui.state().selected,'source');assert.equal(h.actions.length,0);
+});
+
+test('unit drag into arena selects attackers and still requires attack confirmation',()=>{
+ const h=harness();h.state.tokens=[true,false];h.reset();const source={kind:'unit',uid:'allyA'},drop={kind:'arena'};
+ assert.equal(h.ui.canDrop(source,drop),true);h.ui.handleDrop({...source,drop});
+ assert.equal(h.ui.state().attackMode,true);assert.deepEqual(plain(h.ui.state().attackers),['allyA']);assert.equal(h.actions.length,0);
+});
+
+test('unit drag onto an attacker lane assigns a blocker without committing combat',()=>{
+ const h=harness();h.state.phase='block';h.state.combat={p:1,lanes:[{attacker:'enemyA',blocker:null,challenged:false}]};h.reset();
+ const source={kind:'unit',uid:'allyA'},drop={kind:'lane',uid:'enemyA',p:0};
+ assert.equal(h.ui.canDrop(source,drop),true);h.ui.handleDrop({...source,drop});
+ assert.deepEqual(plain(h.ui.state().blocks),{enemyA:'allyA'});assert.equal(h.actions.length,0);
+});
+
+test('Challenger drag selects its attacker and the challenged enemy',()=>{
+ const h=harness();h.state.tokens=[true,false];h.state.players[0].board[0].card='01FR009';h.reset();
+ const source={kind:'unit',uid:'allyA'},drop={kind:'unit',uid:'enemyA',p:1};
+ assert.equal(h.ui.canDrop(source,drop),true);h.ui.handleDrop({...source,drop});
+ assert.deepEqual(plain(h.ui.state().attackers),['allyA']);assert.deepEqual(plain(h.ui.state().challenges),{allyA:'enemyA'});assert.equal(h.actions.length,0);
+});
+
+test('drag integration ignores off-turn and privacy-curtain drop intents',()=>{
+ const h=harness({kind:'unit'}),intent={kind:'hand',uid:'source',drop:{kind:'board',p:0}};
+ h.state.priority=1;h.reset();assert.equal(h.ui.canDrop(intent,intent.drop),false);h.ui.handleDrop(intent);assert.equal(h.actions.length,0);
+ h.state.priority=0;h.reset();h.ui.setCurtain(true);assert.equal(h.ui.canDrop(intent,intent.drop),false);h.ui.handleDrop(intent);assert.equal(h.actions.length,0);
+});
+
+
+function deferred(){let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};}
+
+test('local dispatch animates from old seat before hiding the next player hand behind handover',async()=>{
+ const animation=deferred(),frames=[];let hold=false;
+ const h=harness({}, {realAct:true,motionPlay:(game,frame)=>{frames.push({game,seat:frame.seat,curtain:frame.curtain,mode:frame.mode});return hold?animation.promise:Promise.resolve();}});
+ hold=true;const completion=h.ui.dispatch({type:'play',uid:'handUnit'});
+ const during=h.ui.state();
+ assert.equal(during.seat,0);assert.equal(during.busy,true);assert.equal(during.curtain,false);
+ assert.equal(during.game.priority,1,'real engine has already transferred action priority');
+ assert.equal(during.game.players[0].board.length,3,'real unit play has resolved');
+ assert.ok(during.game.players[1].hand.every(card=>card.hidden&&!('card' in card)),'animation snapshot must keep the other seat hand hidden');
+ assert.equal(frames.at(-1).seat,0);assert.equal(frames.at(-1).curtain,false);
+ assert.doesNotMatch(h.app.innerHTML,/class="curtain"/,'handover must wait for animation');
+ animation.resolve();await completion;
+ const after=h.ui.state();assert.equal(after.seat,1);assert.equal(after.curtain,true);assert.equal(after.busy,false);
+ assert.ok(after.game.players[0].hand.every(card=>card.hidden));
+ assert.ok(after.game.players[1].hand.every(card=>!card.hidden&&card.card),'the current view can hold the new seat cards while the DOM hides them');
+ const handMarkup=h.app.innerHTML.match(/<div class="hand">([\s\S]*?)<\/div><\/section>/)?.[1];
+ assert.ok(handMarkup);assert.match(handMarkup,/class="card back"/);assert.doesNotMatch(handMarkup,/data-hand=/);
+ assert.match(h.app.innerHTML,/class="curtain"/);
+});
+
+test('leaving during a pending local animation cannot reopen the abandoned table',async()=>{
+ const animation=deferred();let hold=false;
+ const h=harness({}, {realAct:true,motionPlay:()=>hold?animation.promise:Promise.resolve()});
+ hold=true;const completion=h.ui.dispatch({type:'play',uid:'handUnit'});
+ assert.equal(h.ui.state().busy,true);const oldEpoch=h.ui.state().sessionEpoch;
+ await h.listeners.click({target:{closest(selector){return selector==='[data-action]'?{dataset:{action:'leave'}}:null;}}});
+ assert.equal(h.ui.state().mode,'lobby');assert.ok(h.ui.state().sessionEpoch>oldEpoch);assert.match(h.app.innerHTML,/class="lobby"/);
+ animation.resolve();await completion;
+ const after=h.ui.state();assert.equal(after.mode,'lobby');assert.equal(after.curtain,false);assert.equal(after.busy,false);
+ assert.match(h.app.innerHTML,/class="lobby"/);assert.doesNotMatch(h.app.innerHTML,/class="game"/);
 });
